@@ -71,24 +71,7 @@
 
 
 
-// Dummy data injection for v160
-(function(){
-  window.App = window.App || {};
-  App.state = App.state || {};
-  App.data = App.data || {};
-
-  const debtors=[];
-  for(let i=1;i<=15;i++){
-    debtors.push({
-      id: String(i),
-      userId: "dev",
-      name: "테스트채무자" + i,
-      phone: "010-"+String(1000+i),
-      status: "진행",
-      note: "",
-      createdAt: "2025-01-"+String((i%28)+1).padStart(2,'0')
-    });
-  }
+}
 
   const loans=[];
   const claims=[];
