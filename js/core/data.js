@@ -393,12 +393,16 @@ function renderAll() {
     ensureCloudStateModuleLoaded();
 
     try {
-      // v330: app_states now has uuid PK "id".
-      // We always fetch the most recent snapshot by ordering on this column.
-      var result = await supa
+      var query = supa
         .from('app_states')
-        .select('state')
-        .order('id', { ascending: false })
+        .select('state');
+
+      if (App.user && App.user.id) {
+        query = query.eq('user_id', App.user.id);
+      }
+
+      var result = await query
+        .order('updated_at', { ascending: false })
         .limit(1);
 
       var error = result && result.error ? result.error : null;
@@ -419,7 +423,12 @@ function renderAll() {
 
       var hasCloudStateModule = App.cloudState && typeof App.cloudState.apply === 'function';
       var version = rawState && rawState.version;
-      var isV1Snapshot = !!(rawState && (version === 1 || version === '1') && rawState.data && typeof rawState.data === 'object');
+      var isV1Snapshot = !!(
+        rawState &&
+        (version === 1 || version === '1') &&
+        rawState.data &&
+        typeof rawState.data === 'object'
+      );
 
       if (isV1Snapshot) {
         if (!hasCloudStateModule) {
@@ -480,7 +489,6 @@ function renderAll() {
         App.state.claims = [];
         App.state.schedules = [];
         App.state.cashLogs = [];
-      
       }
 
       if (!App.data) App.data = {};
@@ -519,12 +527,14 @@ function renderAll() {
       if (typeof renderAll === 'function') {
         renderAll();
       }
+
       App.showToast("Cloud Load 완료 — 최신 데이터가 반영되었습니다.");
     } catch (err) {
       console.error('[Data] Failed to load data from Supabase:', err);
       App.showToast("오류 발생 — 다시 시도해주세요.");
     }
   }
+
 
 
 
