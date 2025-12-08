@@ -944,7 +944,7 @@ App.data.saveToSupabase = async function () {
   try {
     var result = await supa
       .from('app_states')
-      .upsert(payload, { onConflict: 'user_id' });
+      .insert(payload);
 
     var error = result && result.error ? result.error : null;
     if (error) {
