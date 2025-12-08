@@ -14,6 +14,13 @@
     return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
   }
 
+  function todayISODate() {
+    var d = new Date();
+    if (isNaN(d.getTime())) return '';
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+
+
   function formatNumber(v) {
     var n = Number(v);
     if (!isFinite(n)) return String(v);
@@ -75,7 +82,8 @@
     formatNumber: formatNumber,
     formatCurrency: formatCurrency,
     formatShortCurrency: formatShortCurrency,
-    escapeHTML: escapeHTML
+    escapeHTML: escapeHTML,
+    todayISODate: todayISODate
   };
 
   App.showToast = function (msg) {

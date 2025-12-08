@@ -12,6 +12,33 @@
     return App.supabase;
   }
 
+
+  function ensureCloudStateModuleLoaded() {
+    if (App.cloudState && typeof App.cloudState.build === 'function' && typeof App.cloudState.apply === 'function') {
+      return;
+    }
+    if (typeof document === 'undefined') return;
+
+    var scriptId = 'app-cloudstate-script';
+    var existing = document.getElementById(scriptId);
+    if (existing) return;
+
+    try {
+      var script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'js/core/cloudState.js';
+      script.async = true;
+      var head = document.head || document.getElementsByTagName('head')[0];
+      if (head) {
+        head.appendChild(script);
+      } else if (document.body) {
+        document.body.appendChild(script);
+      }
+    } catch (e) {
+      console.warn('[Data] Failed to inject CloudState module script:', e);
+    }
+  }
+
   function parseNumber(value) {
     var n = Number(value);
     if (isNaN(n)) return 0;
@@ -359,6 +386,7 @@ function renderAll() {
   App.renderAll = renderAll;
 
 
+  
   async function loadAllFromSupabase() {
     var supa = getSupabase();
     if (!supa) return;
@@ -368,109 +396,131 @@ function renderAll() {
       return;
     }
 
+    ensureCloudStateModuleLoaded();
+
     var userId = App.user.id;
 
     try {
-      var debtorsPromise = supa
-        .from('debtors')
-        .select('*')
+      var result = await supa
+        .from('app_states')
+        .select('state')
         .eq('user_id', userId);
 
-      var loansPromise = supa
-        .from('loans')
-        .select('*')
-        .eq('user_id', userId);
+      var error = result && result.error ? result.error : null;
+      if (error) {
+        console.error('[Cloud Load] Failed to load cloud state:', error);
+        App.showToast("오류 발생 — 다시 시도해주세요.");
+        return;
+      }
 
-      var claimsPromise = supa
-        .from('claims')
-        .select('*')
-        .eq('user_id', userId);
+      var rows = (result && result.data) || [];
+      if (!rows.length || !rows[0] || !rows[0].state) {
+        console.warn('[Cloud Load] No cloud state found for user.');
+        App.showToast("Cloud Load — 저장된 데이터가 없습니다.");
+        return;
+      }
 
-      var schedulesPromise = supa
-        .from('schedules')
-        .select('*')
-        .eq('user_id', userId);
+      var rawState = rows[0].state || null;
 
-      var cashLogsPromise = supa
-        .from('cash_logs')
-        .select('*')
-        .eq('user_id', userId);
+      if (rawState && rawState.version === 1 && App.cloudState && typeof App.cloudState.apply === 'function') {
+        App.cloudState.apply(rawState);
+      } else {
+        console.warn('[Cloud Load] Legacy cloud state detected. Applying UI only and resetting data.');
 
-      var riskSettingsPromise = supa
-        .from('risk_settings')
-        .select('*')
-        .eq('user_id', userId);
+        if (!App.state) App.state = {};
+        App.state.ui = App.state.ui || {};
 
-      var results = await Promise.all([
-        debtorsPromise,
-        loansPromise,
-        claimsPromise,
-        schedulesPromise,
-        cashLogsPromise,
-        riskSettingsPromise
-      ]);
+        if (rawState && rawState.ui) {
+          if (rawState.ui.calendar) {
+            App.state.ui.calendar = App.state.ui.calendar || {};
+            var legacyCal = rawState.ui.calendar;
+            var todayISO = (App.util && typeof App.util.todayISODate === 'function')
+              ? App.util.todayISODate()
+              : new Date().toISOString().slice(0, 10);
 
-      var debtorsRes = results[0];
-      var loansRes = results[1];
-      var claimsRes = results[2];
-      var schedulesRes = results[3];
-      var cashLogsRes = results[4];
-      var riskRes = results[5];
+            App.state.ui.calendar.view = legacyCal.view || App.state.ui.calendar.view || 'week';
+            App.state.ui.calendar.sortMode = legacyCal.sortMode || App.state.ui.calendar.sortMode || 'type';
+            App.state.ui.calendar.currentDate = legacyCal.currentDate || App.state.ui.calendar.currentDate || todayISO;
+          }
 
-      if (debtorsRes.error) console.error('[Data] debtors load error:', debtorsRes.error);
-      if (loansRes.error) console.error('[Data] loans load error:', loansRes.error);
-      if (claimsRes.error) console.error('[Data] claims load error:', claimsRes.error);
-      if (schedulesRes.error) console.error('[Data] schedules load error:', schedulesRes.error);
-      if (cashLogsRes.error) console.error('[Data] cash_logs load error:', cashLogsRes.error);
-      if (riskRes.error) console.error('[Data] risk_settings load error:', riskRes.error);
+          if (typeof rawState.ui.activeTab === 'string') {
+            App.state.ui.activeTab = rawState.ui.activeTab;
+          }
 
-      var debtorsRows = (debtorsRes.data || []).map(mapDebtorRow).filter(Boolean);
-      var loansRows = (loansRes.data || []).map(mapLoanRow).filter(Boolean);
-      var claimsRows = (claimsRes.data || []).map(mapClaimRow).filter(Boolean);
+          if (rawState.ui.debtorPanel) {
+            App.state.ui.debtorPanel = App.state.ui.debtorPanel || {};
+            var legacyPanel = rawState.ui.debtorPanel;
+            App.state.ui.debtorPanel.mode = legacyPanel.mode || App.state.ui.debtorPanel.mode || 'list';
+            App.state.ui.debtorPanel.page = legacyPanel.page || App.state.ui.debtorPanel.page || 1;
+            App.state.ui.debtorPanel.searchQuery = legacyPanel.searchQuery || App.state.ui.debtorPanel.searchQuery || '';
+            App.state.ui.debtorPanel.selectedDebtorId =
+              typeof legacyPanel.selectedDebtorId === 'undefined'
+                ? (typeof App.state.ui.debtorPanel.selectedDebtorId === 'undefined'
+                    ? null
+                    : App.state.ui.debtorPanel.selectedDebtorId)
+                : legacyPanel.selectedDebtorId;
+          }
+        }
 
-      var loansById = buildIndexById(loansRows);
-      var claimsById = buildIndexById(claimsRows);
+        if (!App.data) App.data = {};
+        App.data.debtors = [];
+        App.data.loans = [];
+        App.data.claims = [];
+        App.data.schedules = [];
+        App.data.cashLogs = [];
+        App.data.riskSettings = null;
 
-      var schedulesRows = mapScheduleRows(schedulesRes.data || [], loansById, claimsById);
-      var cashLogRows = mapCashLogs(cashLogsRes.data || []);
+        App.state.debtors = [];
+        App.state.loans = [];
+        App.state.claims = [];
+        App.state.schedules = [];
+        App.state.cashLogs = [];
+      }
 
-      if (!App.state) App.state = {};
-      App.state.debtors = debtorsRows;
-      App.state.loans = loansRows;
-      App.state.claims = claimsRows;
-      App.state.schedules = schedulesRows;
-      App.state.cashLogs = cashLogRows;
-
-      // DebtorList / DebtorDetail bridge data
       if (!App.data) App.data = {};
-      var debtorBridge = buildDebtorsDetailed(debtorsRows, loansRows, claimsRows, schedulesRows);
+      if (!App.state) App.state = {};
+
+      var debtors = App.data.debtors || App.state.debtors || [];
+      var loans = App.data.loans || App.state.loans || [];
+      var claims = App.data.claims || App.state.claims || [];
+      var schedules = App.data.schedules || App.state.schedules || [];
+      var cashLogs = App.data.cashLogs || App.state.cashLogs || [];
+
+      App.state.debtors = debtors;
+      App.state.loans = loans;
+      App.state.claims = claims;
+      App.state.schedules = schedules;
+      App.state.cashLogs = cashLogs;
+
+      var debtorBridge = buildDebtorsDetailed(debtors, loans, claims, schedules);
       App.data.debtors = debtorBridge.list;
       App.data.debtorsDetailed = debtorBridge.byId;
 
+      if (typeof App.data.riskSettings !== 'undefined') {
+        App.riskSettings = App.data.riskSettings;
+      }
 
-      applyRiskSettings(riskRes.data || []);
+      if (typeof recomputeDerivedLoanFields === 'function') {
+        recomputeDerivedLoanFields();
+      }
 
-      // 재계산 필드 업데이트
-      recomputeDerivedLoanFields();
-
-      // Debtor sidepanel list refresh (if available)
       if (App.debtors && typeof App.debtors.updateFilteredList === 'function' && typeof App.debtors.renderList === 'function') {
         App.debtors.updateFilteredList();
         App.debtors.state.page = 1;
         App.debtors.renderList();
       }
 
-      // UI 렌더링
-      renderAll();
-
-      // UI 렌더링
-      renderAll();
+      if (typeof renderAll === 'function') {
+        renderAll();
+      }
       App.showToast("Cloud Load 완료 — 최신 데이터가 반영되었습니다.");
     } catch (err) {
       console.error('[Data] Failed to load data from Supabase:', err);
       App.showToast("오류 발생 — 다시 시도해주세요.");
     }
   }
+
+
 
 
 
@@ -854,6 +904,7 @@ function computeRecoveryFlowSummary(today) {
 
 
   App.data.loadAllFromSupabase = loadAllFromSupabase;
+
 App.data.saveToSupabase = async function () {
   var supa = getSupabase();
   if (!supa || !App.user) {
@@ -862,10 +913,26 @@ App.data.saveToSupabase = async function () {
     return;
   }
 
+  ensureCloudStateModuleLoaded();
+  if (!App.cloudState || typeof App.cloudState.build !== 'function') {
+    console.error('[Cloud Save] CloudState module is not available.');
+    App.showToast("오류 발생 — 다시 시도해주세요.");
+    return;
+  }
+
+  var snapshot;
+  try {
+    snapshot = App.cloudState.build();
+  } catch (e) {
+    console.error('[Cloud Save] Failed to build cloud snapshot:', e);
+    App.showToast("오류 발생 — 다시 시도해주세요.");
+    return;
+  }
+
   var payload = {
     user_id: App.user.id,
     updated_at: new Date().toISOString(),
-    state: App.state
+    state: snapshot
   };
 
   try {
@@ -886,6 +953,8 @@ App.data.saveToSupabase = async function () {
     App.showToast("오류 발생 — 다시 시도해주세요.");
   }
 };
+
+
 
   App.data.computePortfolioSummary = computePortfolioSummary;
   App.data.computeRecoveryFlowSummary = computeRecoveryFlowSummary;
