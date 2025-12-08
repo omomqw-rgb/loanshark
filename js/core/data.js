@@ -39,18 +39,6 @@
     }
   }
 
-
-  async function waitCloudStateReady() {
-    return new Promise(resolve => {
-      const iv = setInterval(() => {
-        if (App.cloudState && typeof App.cloudState.apply === 'function') {
-          clearInterval(iv);
-          resolve();
-        }
-      }, 10);
-    });
-  }
-
   function parseNumber(value) {
     var n = Number(value);
     if (isNaN(n)) return 0;
@@ -399,37 +387,24 @@ function renderAll() {
 
 
   
-    async function loadAllFromSupabase() {
+  async function loadAllFromSupabase() {
     var supa = getSupabase();
     if (!supa) return;
+    if (!App.user || !App.user.id) {
+      console.warn('[Data] Cannot load data: App.user is not set.');
+      App.showToast("오류 발생 — 다시 시도해주세요.");
+      return;
+    }
 
-    // 🔥 cloudState.js 먼저 로드 보장
     ensureCloudStateModuleLoaded();
 
-    // 🔥 그 다음 apply 준비 대기
-    await waitCloudStateReady();
+    var userId = App.user.id;
 
     try {
-      var result;
-
-      // v335: Supabase 최신 스냅샷 fetch 전용 헬퍼 우선 사용
-      if (App.supabaseHelpers && typeof App.supabaseHelpers.getLatestAppState === 'function') {
-        var userId = (App.user && App.user.id) ? App.user.id : null;
-        result = await App.supabaseHelpers.getLatestAppState(userId);
-      } else {
-        // 안전망: 기존 방식으로 직접 쿼리 (updated_at DESC LIMIT 1)
-        var query = supa
-          .from('app_states')
-          .select('*');
-
-        if (App.user && App.user.id) {
-          query = query.eq('user_id', App.user.id);
-        }
-
-        result = await query
-          .order('updated_at', { ascending: false })
-          .limit(1);
-      }
+      var result = await supa
+        .from('app_states')
+        .select('state')
+        .eq('user_id', userId);
 
       var error = result && result.error ? result.error : null;
       if (error) {
@@ -440,27 +415,79 @@ function renderAll() {
 
       var rows = (result && result.data) || [];
       if (!rows.length || !rows[0] || !rows[0].state) {
-        console.warn('[Cloud Load] No cloud state found.');
+        console.warn('[Cloud Load] No cloud state found for user.');
         App.showToast("Cloud Load — 저장된 데이터가 없습니다.");
         return;
       }
 
       var rawState = rows[0].state || null;
 
-      if (!App.cloudState || typeof App.cloudState.load !== 'function') {
-        console.error('[Cloud Load] CloudState.load is not available.');
-        App.showToast("오류 발생 — 다시 시도해주세요.");
-        return;
+      var hasCloudStateModule = App.cloudState && typeof App.cloudState.apply === 'function';
+      var version = rawState && rawState.version;
+      var isV1Snapshot = !!(rawState && (version === 1 || version === '1') && rawState.data && typeof rawState.data === 'object');
+
+      if (isV1Snapshot) {
+        if (!hasCloudStateModule) {
+          console.error('[Cloud Load] v1 cloud snapshot detected but CloudState.apply is not available.');
+          App.showToast("오류 발생 — 다시 시도해주세요.");
+          return;
+        }
+
+        App.cloudState.apply(rawState);
+      } else {
+        console.warn('[Cloud Load] Legacy cloud state detected. Applying UI only and resetting data.');
+
+        if (!App.state) App.state = {};
+        App.state.ui = App.state.ui || {};
+
+        if (rawState && rawState.ui) {
+          if (rawState.ui.calendar) {
+            App.state.ui.calendar = App.state.ui.calendar || {};
+            var legacyCal = rawState.ui.calendar;
+            var todayISO = (App.util && typeof App.util.todayISODate === 'function')
+              ? App.util.todayISODate()
+              : new Date().toISOString().slice(0, 10);
+
+            App.state.ui.calendar.view = legacyCal.view || App.state.ui.calendar.view || 'week';
+            App.state.ui.calendar.sortMode = legacyCal.sortMode || App.state.ui.calendar.sortMode || 'type';
+            App.state.ui.calendar.currentDate = legacyCal.currentDate || App.state.ui.calendar.currentDate || todayISO;
+          }
+
+          if (typeof rawState.ui.activeTab === 'string') {
+            App.state.ui.activeTab = rawState.ui.activeTab;
+          }
+
+          if (rawState.ui.debtorPanel) {
+            App.state.ui.debtorPanel = App.state.ui.debtorPanel || {};
+            var legacyPanel = rawState.ui.debtorPanel;
+            App.state.ui.debtorPanel.mode = legacyPanel.mode || App.state.ui.debtorPanel.mode || 'list';
+            App.state.ui.debtorPanel.page = legacyPanel.page || App.state.ui.debtorPanel.page || 1;
+            App.state.ui.debtorPanel.searchQuery = legacyPanel.searchQuery || App.state.ui.debtorPanel.searchQuery || '';
+            App.state.ui.debtorPanel.selectedDebtorId =
+              typeof legacyPanel.selectedDebtorId === 'undefined'
+                ? (typeof App.state.ui.debtorPanel.selectedDebtorId === 'undefined'
+                    ? null
+                    : App.state.ui.debtorPanel.selectedDebtorId)
+                : legacyPanel.selectedDebtorId;
+          }
+        }
+
+        if (!App.data) App.data = {};
+        App.data.debtors = [];
+        App.data.loans = [];
+        App.data.claims = [];
+        App.data.schedules = [];
+        App.data.cashLogs = [];
+        App.data.riskSettings = null;
+
+        App.state.debtors = [];
+        App.state.loans = [];
+        App.state.claims = [];
+        App.state.schedules = [];
+        App.state.cashLogs = [];
+      
       }
 
-      var loadResult = App.cloudState.load(rawState);
-      if (!loadResult || !loadResult.applied) {
-        console.warn('[Cloud Load] Snapshot was not applied by CloudState.load.', loadResult);
-        App.showToast("Cloud Load — 저장된 스냅샷을 적용할 수 없습니다.");
-        return;
-      }
-
-      // CloudState.apply 에서 App.data.* 가 최신 스냅샷으로 교체된 상태
       if (!App.data) App.data = {};
       if (!App.state) App.state = {};
 
@@ -488,27 +515,21 @@ function renderAll() {
         recomputeDerivedLoanFields();
       }
 
-      if (App.debtors && typeof App.debtors.updateFilteredList === 'function') {
+      if (App.debtors && typeof App.debtors.updateFilteredList === 'function' && typeof App.debtors.renderList === 'function') {
         App.debtors.updateFilteredList();
-        if (App.debtors.state) {
-          App.debtors.state.page = 1;
-        }
-        if (typeof App.debtors.renderList === 'function') {
-          App.debtors.renderList();
-        }
+        App.debtors.state.page = 1;
+        App.debtors.renderList();
       }
 
       if (typeof renderAll === 'function') {
         renderAll();
       }
-
       App.showToast("Cloud Load 완료 — 최신 데이터가 반영되었습니다.");
     } catch (err) {
       console.error('[Data] Failed to load data from Supabase:', err);
       App.showToast("오류 발생 — 다시 시도해주세요.");
     }
   }
-
 
 
 
@@ -928,7 +949,7 @@ App.data.saveToSupabase = async function () {
   try {
     var result = await supa
       .from('app_states')
-      .insert(payload);
+      .upsert(payload, { onConflict: 'user_id' });
 
     var error = result && result.error ? result.error : null;
     if (error) {
