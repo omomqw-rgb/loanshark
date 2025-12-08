@@ -71,25 +71,4 @@
 
 
 
-}
 
-  const loans=[];
-  const claims=[];
-  const schedules=[];
-
-  App.state.debtors = debtors;
-  App.state.loans = loans;
-  App.state.claims = claims;
-  App.state.schedules = schedules;
-
-  if(App.data && typeof App.data.buildDebtorsDetailed === 'function'){
-    const bridge = App.data.buildDebtorsDetailed(debtors, loans, claims, schedules);
-    App.data.debtors = bridge.list;
-    App.data.debtorsDetailed = bridge.byId;
-  }
-
-  if(App.debtors && App.debtors.updateFilteredList){
-    App.debtors.updateFilteredList();
-    App.debtors.renderList();
-  }
-})();
