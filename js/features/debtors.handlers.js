@@ -341,27 +341,77 @@ function handleDebtorDelete() {
       }
     }
 
+  
   function handleLoanDelete(loanId) {
       var api = App.features && App.features.debtors;
+      var state = App.state || (App.state = {});
+      var data = App.data || (App.data = {});
+
+      // 1) loan 찾기 (state 우선, 그다음 data)
       var loan = findLoan(loanId);
+      if (!loan) {
+        var dataLoansSearch = data.loans || [];
+        for (var i = 0; i < dataLoansSearch.length; i++) {
+          var candidate = dataLoansSearch[i];
+          if (candidate && String(candidate.id) === String(loanId)) {
+            loan = candidate;
+            break;
+          }
+        }
+      }
       if (!loan) return;
+
       var debtorId = loan.debtorId;
       if (!window.confirm('대출 카드를 삭제할까요?')) return;
-      var state = App.state;
-      state.loans = state.loans.filter(function (l) { return l.id !== loanId; });
-      state.schedules = state.schedules.filter(function (s) {
-        return !(s.kind === 'loan' && s.loanId === loanId);
+
+      // 2) App.state.* 에서 삭제
+      var stateLoans = state.loans || [];
+      state.loans = stateLoans.filter(function (l) {
+        return !l || String(l.id) !== String(loanId);
       });
+
+      var stateSchedules = state.schedules || [];
+      state.schedules = stateSchedules.filter(function (s) {
+        return !(s && s.kind === 'loan' && String(s.loanId) === String(loanId));
+      });
+
+      // 3) App.data.* 에서도 동일하게 삭제
+      var dataLoans = data.loans || [];
+      data.loans = dataLoans.filter(function (l) {
+        return !l || String(l.id) !== String(loanId);
+      });
+
+      var dataSchedules = data.schedules || [];
+      data.schedules = dataSchedules.filter(function (s) {
+        return !(s && s.kind === 'loan' && String(s.loanId) === String(loanId));
+      });
+
+      // 4) Debtor bridge 재생성 (App.data.* 기준)
+      if (App.data && typeof App.data.buildDebtorsDetailed === 'function') {
+        var bridge = App.data.buildDebtorsDetailed(
+          data.debtors || [],
+          data.loans || [],
+          data.claims || [],
+          data.schedules || []
+        );
+        if (bridge) {
+          data.debtors = bridge.list || data.debtors || [];
+          data.debtorsDetailed = bridge.byId || data.debtorsDetailed || {};
+        }
+      }
+
+      // 5) UI 갱신
       if (api && typeof api.render === 'function') {
         api.render();
       }
       if (api && typeof api.refreshOtherViews === 'function') {
         api.refreshOtherViews();
       }
-      if (window.App && App.debtorDetail && typeof App.debtorDetail.render === 'function') {
+      if (window.App && App.debtorDetail && typeof App.debtorDetail.render === 'function' && debtorId != null) {
         App.debtorDetail.render(String(debtorId));
       }
     }
+
 
   function handleClaimCreate(form) {
       var api = App.features && App.features.debtors;
@@ -500,27 +550,77 @@ function handleDebtorDelete() {
       }
     }
 
+  
   function handleClaimDelete(claimId) {
       var api = App.features && App.features.debtors;
+      var state = App.state || (App.state = {});
+      var data = App.data || (App.data = {});
+
+      // 1) claim 찾기 (state 우선, 그다음 data)
       var claim = findClaim(claimId);
+      if (!claim) {
+        var dataClaimsSearch = data.claims || [];
+        for (var i = 0; i < dataClaimsSearch.length; i++) {
+          var candidate = dataClaimsSearch[i];
+          if (candidate && String(candidate.id) === String(claimId)) {
+            claim = candidate;
+            break;
+          }
+        }
+      }
       if (!claim) return;
+
       var debtorId = claim.debtorId;
       if (!window.confirm('채권 카드를 삭제할까요?')) return;
-      var state = App.state;
-      state.claims = state.claims.filter(function (c) { return c.id !== claimId; });
-      state.schedules = state.schedules.filter(function (s) {
-        return !(s.kind === 'claim' && s.claimId === claimId);
+
+      // 2) App.state.* 에서 삭제
+      var stateClaims = state.claims || [];
+      state.claims = stateClaims.filter(function (c) {
+        return !c || String(c.id) !== String(claimId);
       });
+
+      var stateSchedules = state.schedules || [];
+      state.schedules = stateSchedules.filter(function (s) {
+        return !(s && s.kind === 'claim' && String(s.claimId) === String(claimId));
+      });
+
+      // 3) App.data.* 에서도 동일하게 삭제
+      var dataClaims = data.claims || [];
+      data.claims = dataClaims.filter(function (c) {
+        return !c || String(c.id) !== String(claimId);
+      });
+
+      var dataSchedules = data.schedules || [];
+      data.schedules = dataSchedules.filter(function (s) {
+        return !(s && s.kind === 'claim' && String(s.claimId) === String(claimId));
+      });
+
+      // 4) Debtor bridge 재생성 (App.data.* 기준)
+      if (App.data && typeof App.data.buildDebtorsDetailed === 'function') {
+        var bridge = App.data.buildDebtorsDetailed(
+          data.debtors || [],
+          data.loans || [],
+          data.claims || [],
+          data.schedules || []
+        );
+        if (bridge) {
+          data.debtors = bridge.list || data.debtors || [];
+          data.debtorsDetailed = bridge.byId || data.debtorsDetailed || {};
+        }
+      }
+
+      // 5) UI 갱신
       if (api && typeof api.render === 'function') {
         api.render();
       }
       if (api && typeof api.refreshOtherViews === 'function') {
         api.refreshOtherViews();
       }
-      if (window.App && App.debtorDetail && typeof App.debtorDetail.render === 'function') {
+      if (window.App && App.debtorDetail && typeof App.debtorDetail.render === 'function' && debtorId != null) {
         App.debtorDetail.render(String(debtorId));
       }
     }
+
 
     function handleLoanScheduleSave(form) {
     var api = App.features && App.features.debtors;
