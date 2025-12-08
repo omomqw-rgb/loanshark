@@ -1,0 +1,125 @@
+{
+  "version": "v335_cloudstate_latest_snapshot_investigation_and_fix",
+  "baseline": "v334_cloudstate_ready_wait_order_fix",
+  "summary": {
+    "goal": "Supabase app_states 테이블에서 항상 최신(updated_at DESC) 스냅샷 1개를 가져와 CloudState를 통해 전역 상태(App.data / App.state)에 일관되게 반영하도록 Cloud Load 아키텍처를 재구축.",
+    "modules": [
+      "js/core/supabase.js",
+      "js/core/data.js",
+      "js/core/cloudState.js"
+    ]
+  },
+  "issues": [
+    {
+      "id": "LEGACY_UI_ONLY_APPLY",
+      "path": "js/core/data.js",
+      "function": "loadAllFromSupabase",
+      "type": "logic / legacy fallback",
+      "description_before": "v334에서는 Supabase app_states.state 스냅샷이 v1 형식이 아닌 경우 loadAllFromSupabase 내부에서 \"Legacy cloud state detected\" 경로를 타며 UI(App.state.ui.*)만 부분적으로 적용하고 App.data / App.state의 데이터 배열은 모두 빈 배열로 초기화하는 레거시 UI-only apply 로직이 존재.",
+      "risk": [
+        "실제 Supabase row가 최신이어도, version / data 필드 조건 불일치로 legacy 분기로 빠질 경우 사용자는 화면상에서 '예전(또는 비어있는) 상태'로 보게 되어 최신 스냅샷이 로드되지 않은 것처럼 인지할 수 있음.",
+        "Cloud Load 이후 데이터 배열을 강제로 비워 버리기 때문에 runShadowQA 등 후속 검증도 의미가 약해짐."
+      ],
+      "fix_v335": "loadAllFromSupabase 에서 snapshot 버전 판별 및 legacy 분기를 완전히 제거하고, Supabase에서 읽어온 state 객체를 그대로 CloudState.load()에 위임. CloudState.load()는 snapshot.version / snapshot.data 구조를 검증한 뒤, 유효한 v1 스냅샷에 대해서만 CloudState.apply()를 호출하고, 미지원 스냅샷은 로컬 상태를 변경하지 않고 경고 로그만 남김."
+    },
+    {
+      "id": "NO_SINGLE_CLOUDSTATE_ENTRYPOINT",
+      "path": "js/core/cloudState.js & js/core/data.js",
+      "function": "loadAllFromSupabase / App.cloudState.apply",
+      "type": "architecture",
+      "description_before": "v334에서는 CloudState.apply()가 \"유효한 v1 스냅샷\"이라는 가정을 전제로 작성되어 있으나, 실제 버전/형식 검증은 data.js(loadAllFromSupabase) 쪽에서 별도로 수행됨. CloudState 모듈 입장에서는 스냅샷 검증·적용·ShadowQA 실행이 하나의 진입점으로 정리되어 있지 않아, 다른 호출자가 apply()를 직접 사용할 경우 버전/형식 불일치에 취약.",
+      "risk": [
+        "CloudState.apply()가 스냅샷 유효성/버전 검증 없이 직접 호출될 수 있음.",
+        "Cloud Load 흐름이 모듈 간에 분산되어 있어 추후 수정 시 snapshot 적용 순서를 깨뜨릴 위험."
+      ],
+      "fix_v335": "cloudState.js에 App.cloudState.load(snapshot) 를 신설하여, Supabase로부터 읽은 state 객체는 항상 load()를 통해 유입되도록 아키텍처를 정리. load() 내부에서 version === 1 && typeof data === 'object' 조건을 검증하고, 유효한 경우에만 App.cloudState.apply(snapshot)를 호출. apply()는 오직 '유효한 스냅샷 데이터의 매핑'만 담당하도록 단순화."
+    },
+    {
+      "id": "SNAPSHOT_DATA_RESET_ON_UNSUPPORTED",
+      "path": "js/core/cloudState.js",
+      "function": "App.cloudState.apply",
+      "type": "data reset behavior",
+      "description_before": "기존 App.cloudState.apply()는 snapshot이 없거나 version !== 1 인 경우 App.data 및 App.state의 주요 배열(loan/claim/schedule/cashLogs 등)을 모두 빈 배열로 리셋하고, UI를 기본값으로 초기화한 뒤 return 함.",
+      "risk": [
+        "잘못된 snapshot 객체(타입 오류 등)가 apply()로 직접 전달될 경우, 사용자가 보고 있던 로컬 데이터가 예고 없이 전부 사라지는 부작용 발생 가능.",
+        "Cloud Load 시점에 예외 상황을 구분하기 어렵고, \"최신 스냅샷이 적용되지 않고 초기 상태로 돌아갔다\"는 사용자 인상을 줄 수 있음."
+      ],
+      "fix_v335": "CloudState.apply()에서는 더 이상 snapshot 미지원/없음에 대한 초기화 로직을 수행하지 않도록 변경. 유효하지 않은 스냅샷은 CloudState.load() 단계에서 걸러지고, apply()는 데이터 교체/정규화/UI 복원/ShadowQA 수행에만 집중."
+    },
+    {
+      "id": "SCATTERED_SUPABASE_FETCH_LOGIC",
+      "path": "js/core/data.js & js/core/supabase.js",
+      "function": "loadAllFromSupabase / getSupabase",
+      "type": "fetch logic / consistency",
+      "description_before": "Supabase app_states 최신 스냅샷 조회 로직이 data.js(loadAllFromSupabase) 내부에 직접 구현되어 있어, 다른 모듈에서 동일 요구사항(최신 스냅샷 1개 조회)이 필요할 경우 중복 구현/파편화 가능성이 존재.",
+      "risk": [
+        "ORDER BY / LIMIT, user_id filter 등 핵심 쿼리 조건이 여러 곳에서 따로 유지되면 일부 호출자가 잘못된 정렬 또는 필터를 사용하여 '과거 row'를 가져올 위험.",
+        "캐싱/중복 호출 로직이 추가될 경우, 각 호출자마다 갱신 규칙을 추적하기 어려움."
+      ],
+      "fix_v335": "supabase.js에 App.supabaseHelpers.getLatestAppState(userId?) 를 신설하여, app_states 최신 스냅샷 조회를 단일 헬퍼로 캡슐화. 쿼리는 항상 user_id = 현재 사용자(옵션) AND updated_at DESC LIMIT 1 로 고정. data.js.loadAllFromSupabase 는 이 헬퍼를 우선 사용하고, 헬퍼가 없을 때만 동일 쿼리를 inline 으로 수행하는 안전망만 유지."
+    }
+  ],
+  "architecture": {
+    "before_v335": {
+      "cloud_load_flow": [
+        "auth.js handleAuthResult → App.data.loadAllFromSupabase()",
+        "data.js loadAllFromSupabase(): getSupabase() → supa.from('app_states').select('state')",
+        "  → user_id filter → order('updated_at', {ascending: false}).limit(1)",
+        "  → rawState = rows[0].state",
+        "  → (버전/형식 체크) isV1Snapshot",
+        "    - true  → App.cloudState.apply(rawState)",
+        "    - false → legacy UI-only apply + App.data/App.state 배열 전체 초기화",
+        "  → App.state / App.data 병합 및 buildDebtorsDetailed, recomputeDerivedLoanFields 등 호출",
+        "  → renderAll() + 토스트"
+      ],
+      "cloudstate_module": [
+        "App.cloudState.build() : App.state/App.data 기반 전체 스냅샷 생성 및 ID 정규화",
+        "App.cloudState.apply() :",
+        "  - snapshot.version !== 1 이면 App.data/App.state 배열 초기화 + UI 기본값 세팅",
+        "  - snapshot.data 를 App.data.* 로 대입 후 normalizeAppDataIds() 호출",
+        "  - snapshot.ui 로부터 캘린더/채무자 패널 UI 복원",
+        "  - runShadowQA('cloudState.apply')"
+      ]
+    },
+    "after_v335": {
+      "cloud_load_flow": [
+        "auth.js handleAuthResult → App.data.loadAllFromSupabase()",
+        "data.js loadAllFromSupabase():",
+        "  1) ensureCloudStateModuleLoaded() → waitCloudStateReady()",
+        "  2) Supabase fetch:",
+        "     - 우선 App.supabaseHelpers.getLatestAppState(App.user.id)를 사용",
+        "     - 없으면 supa.from('app_states').select('*').eq('user_id', ...).order('updated_at', {ascending:false}).limit(1)",
+        "  3) rawState = rows[0].state",
+        "  4) App.cloudState.load(rawState) 호출",
+        "     - version/data 검증 실패 시 로컬 상태 변경 없이 경고 로그만 남김",
+        "     - 유효한 v1 스냅샷이면 내부에서 App.cloudState.apply() 호출",
+        "  5) App.data / App.state 동기화 및 buildDebtorsDetailed, recomputeDerivedLoanFields 호출",
+        "  6) App.debtors.updateFilteredList()/renderList(), renderAll(), Cloud Load 완료 토스트"
+      ],
+      "cloudstate_module": [
+        "App.cloudState.build(): 기존과 동일하게 App.state/App.data 기반으로 snapshot 생성 및 ID 정규화.",
+        "App.cloudState.load(snapshot):",
+        "  - snapshot.version === 1 && typeof snapshot.data === 'object' 인지 검증",
+        "  - 유효한 경우에만 apply() 호출",
+        "  - 미지원 스냅샷은 {applied:false, reason:'unsupported'} 로 반환하고 실제 상태는 건드리지 않음.",
+        "App.cloudState.apply(snapshot):",
+        "  - snapshot.data.* 를 cloneArray/shallowClone 으로 App.data.* 에 완전 대입",
+        "  - normalizeAppDataIds(App.data) 호출로 Loan/Claim/Schedule/Debtor ID 정규화",
+        "  - snapshot.ui 로부터 App.state.ui.* 복원 (캘린더 / debtorPanel / activeTab)",
+        "  - App.data.riskSettings → App.riskSettings 반영",
+        "  - runShadowQA('cloudState.apply') 로 Loan ↔ Schedule 링크 무결성 검증"
+      ],
+      "supabase_helpers": {
+        "getLatestAppState": {
+          "path": "js/core/supabase.js",
+          "signature": "async getLatestAppState(userId?)",
+          "query": "from('app_states').select('*').eq('user_id', userId?).order('updated_at', {ascending:false}).limit(1)",
+          "notes": [
+            "캐싱 없음, 항상 실시간 최신 1개 row 조회",
+            "userId가 없으면 전체 row 중 updated_at DESC 1개를 반환하지만, Cloud Load는 기본적으로 로그인 사용자에 대해서만 호출"
+          ]
+        }
+      }
+    }
+  }
+}

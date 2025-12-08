@@ -234,7 +234,7 @@
   App.cloudState = App.cloudState || {};
 
   // Cloud에 저장할 전체 스냅샷을 만드는 함수
-  App.cloudState.build = function () {
+App.cloudState.build = function () {
     var state = App.state || {};
     var uiState = state.ui || {};
     var calendar = uiState.calendar || {};
@@ -294,82 +294,101 @@
     return snapshot;
   };
 
-  // Supabase에서 가져온 스냅샷을 앱에 반영하는 함수
-  App.cloudState.apply = function (snapshot) {
+  /**
+   * CloudState.load
+   *
+   * Supabase에서 가져온 snapshot 객체를 검증하고,
+   * 유효한 경우에만 CloudState.apply를 통해 전체 상태를 교체한다.
+   *
+   * - snapshot.version === 1 인 경우만 지원
+   * - snapshot.data 가 object 가 아니면 적용하지 않음
+   * - 여기서는 App.state / App.data 를 임의로 건드리지 않고,
+   *   실제 데이터 교체는 apply() 에서만 수행한다.
+   *
+   * @param {{Object}} snapshot Supabase app_states.state 필드에서 읽어온 객체
+   * @returns {{ applied: boolean, reason: string, version: any }}
+   */
+  App.cloudState.load = function (snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') {
+      console.warn('[CloudState] load() called with empty or non-object snapshot.');
+      return { applied: false, reason: 'empty', version: null };
+    }
+
     var version = snapshot && snapshot.version;
     var isV1 = (version === 1 || version === '1');
+    var hasDataObject = !!(snapshot.data && typeof snapshot.data === 'object');
 
-    if (!snapshot || !isV1) {
-      console.warn('[CloudState] Unsupported or missing snapshot. Resetting to empty state.');
+    if (!isV1 || !hasDataObject) {
+      console.warn('[CloudState] Unsupported snapshot version or shape. Skipping apply.', {
+        version: version,
+        hasData: hasDataObject
+      });
+      return { applied: false, reason: 'unsupported', version: version };
+    }
 
-      if (!App.data) App.data = {};
-      App.data.debtors = [];
-      App.data.loans = [];
-      App.data.claims = [];
-      App.data.schedules = [];
-      App.data.cashLogs = [];
-      App.data.riskSettings = null;
+    if (!App.data) App.data = {};
+    if (!App.state) App.state = {};
+    if (!App.state.ui) App.state.ui = {};
 
-      if (!App.state) App.state = {};
-      App.state.debtors = [];
-      App.state.loans = [];
-      App.state.claims = [];
-      App.state.schedules = [];
-      App.state.cashLogs = [];
+    // 실제 스냅샷 적용은 apply()에서만 수행한다.
+    App.cloudState.apply(snapshot);
 
-      var todayISO = getTodayISODate();
+    return { applied: true, reason: 'applied', version: version };
+  };
 
-      App.state.ui = App.state.ui || {};
-      App.state.ui.calendar = App.state.ui.calendar || {};
-      App.state.ui.calendar.view = 'week';
-      App.state.ui.calendar.sortMode = 'type';
-      App.state.ui.calendar.currentDate = todayISO;
-
-      App.state.ui.activeTab = App.state.ui.activeTab || 'calendar';
-
-      App.state.ui.debtorPanel = App.state.ui.debtorPanel || {};
-      App.state.ui.debtorPanel.mode = 'list';
-      App.state.ui.debtorPanel.page = 1;
-      App.state.ui.debtorPanel.searchQuery = '';
-      App.state.ui.debtorPanel.selectedDebtorId = null;
-
+  // Supabase에서 가져온 스냅샷을 앱에 반영하는 함수
+  App.cloudState.apply = function (snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') {
+      console.warn('[CloudState] apply() called with invalid snapshot. Ignoring.');
       return;
     }
 
     var data = snapshot.data || {};
+    var ui = snapshot.ui || {};
+
     if (!App.data) App.data = {};
+    if (!App.state) App.state = {};
+    if (!App.state.ui) App.state.ui = {};
 
-    App.data.debtors = Array.isArray(data.debtors) ? data.debtors : [];
-    App.data.loans = Array.isArray(data.loans) ? data.loans : [];
-    App.data.claims = Array.isArray(data.claims) ? data.claims : [];
-    App.data.schedules = Array.isArray(data.schedules) ? data.schedules : [];
-    App.data.cashLogs = Array.isArray(data.cashLogs) ? data.cashLogs : [];
-    App.data.riskSettings = (typeof data.riskSettings !== 'undefined') ? data.riskSettings : null;
+    // 1) 데이터 루트 교체 (기존 데이터는 완전히 대체)
+    App.data.debtors = Array.isArray(data.debtors) ? cloneArray(data.debtors) : [];
+    App.data.loans = Array.isArray(data.loans) ? cloneArray(data.loans) : [];
+    App.data.claims = Array.isArray(data.claims) ? cloneArray(data.claims) : [];
+    App.data.schedules = Array.isArray(data.schedules) ? cloneArray(data.schedules) : [];
+    App.data.cashLogs = Array.isArray(data.cashLogs) ? cloneArray(data.cashLogs) : [];
 
-    // v326 핵심: Cloud Load 직후 id 타입/키 정규화 (loan.id ↔ schedule.loanId 매핑 실패 방지)
+    if (typeof data.riskSettings !== 'undefined') {
+      App.data.riskSettings = isObject(data.riskSettings)
+        ? shallowClone(data.riskSettings)
+        : data.riskSettings;
+    } else {
+      App.data.riskSettings = null;
+    }
+
+    // 2) Loan / Claim / Schedule / Debtor ID 정규화
     normalizeAppDataIds(App.data);
 
-    if (!App.state) App.state = {};
-    App.state.ui = App.state.ui || {};
-
-    var ui = snapshot.ui || {};
-    var cal = ui.calendar || {};
+    // 3) UI 상태 복원
+    var calendar = ui.calendar || {};
     var debtorPanel = ui.debtorPanel || {};
-    var todayISO2 = getTodayISODate();
+    var todayISO = getTodayISODate();
 
     App.state.ui.calendar = App.state.ui.calendar || {};
-    App.state.ui.calendar.view = cal.view || 'week';
-    App.state.ui.calendar.sortMode = cal.sortMode || 'type';
-    App.state.ui.calendar.currentDate = cal.currentDate || todayISO2;
+    App.state.ui.calendar.view = calendar.view || 'week';
+    App.state.ui.calendar.sortMode = calendar.sortMode || 'type';
+    App.state.ui.calendar.currentDate = calendar.currentDate || todayISO;
 
     App.state.ui.activeTab = ui.activeTab || 'calendar';
 
     App.state.ui.debtorPanel = App.state.ui.debtorPanel || {};
     App.state.ui.debtorPanel.mode = debtorPanel.mode || 'list';
-    App.state.ui.debtorPanel.page = (typeof debtorPanel.page === 'number') ? debtorPanel.page : 1;
+    App.state.ui.debtorPanel.page =
+      (typeof debtorPanel.page === 'number') ? debtorPanel.page : 1;
     App.state.ui.debtorPanel.searchQuery = debtorPanel.searchQuery || '';
     App.state.ui.debtorPanel.selectedDebtorId =
-      (typeof debtorPanel.selectedDebtorId === 'undefined') ? null : debtorPanel.selectedDebtorId;
+      (typeof debtorPanel.selectedDebtorId === 'undefined')
+        ? null
+        : debtorPanel.selectedDebtorId;
 
     if (typeof App.data.riskSettings !== 'undefined') {
       App.riskSettings = App.data.riskSettings;
