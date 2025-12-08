@@ -390,21 +390,14 @@ function renderAll() {
   async function loadAllFromSupabase() {
     var supa = getSupabase();
     if (!supa) return;
-    if (!App.user || !App.user.id) {
-      console.warn('[Data] Cannot load data: App.user is not set.');
-      App.showToast("오류 발생 — 다시 시도해주세요.");
-      return;
-    }
-
     ensureCloudStateModuleLoaded();
-
-    var userId = App.user.id;
 
     try {
       var result = await supa
         .from('app_states')
         .select('state')
-        .eq('user_id', userId);
+        .order('id', { ascending: false })
+        .limit(1);
 
       var error = result && result.error ? result.error : null;
       if (error) {
