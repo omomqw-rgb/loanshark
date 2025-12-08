@@ -39,6 +39,18 @@
     }
   }
 
+
+  async function waitCloudStateReady() {
+    return new Promise(resolve => {
+      const iv = setInterval(() => {
+        if (App.cloudState && typeof App.cloudState.apply === 'function') {
+          clearInterval(iv);
+          resolve();
+        }
+      }, 10);
+    });
+  }
+
   function parseNumber(value) {
     var n = Number(value);
     if (isNaN(n)) return 0;
@@ -391,6 +403,7 @@ function renderAll() {
     var supa = getSupabase();
     if (!supa) return;
     ensureCloudStateModuleLoaded();
+    await waitCloudStateReady();
 
     try {
       var query = supa
