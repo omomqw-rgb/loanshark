@@ -402,10 +402,14 @@ function renderAll() {
   async function loadAllFromSupabase() {
     var supa = getSupabase();
     if (!supa) return;
+
+    // 🔥 cloudState.js 먼저 로드 보장
     ensureCloudStateModuleLoaded();
+
+    // 🔥 그 다음 apply 준비 대기
     await waitCloudStateReady();
 
-    try {
+try {
       var query = supa
         .from('app_states')
         .select('state');
