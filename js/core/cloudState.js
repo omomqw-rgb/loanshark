@@ -296,7 +296,10 @@
 
   // Supabase에서 가져온 스냅샷을 앱에 반영하는 함수
   App.cloudState.apply = function (snapshot) {
-    if (!snapshot || snapshot.version !== 1) {
+    var version = snapshot && snapshot.version;
+    var isV1 = (version === 1 || version === '1');
+
+    if (!snapshot || !isV1) {
       console.warn('[CloudState] Unsupported or missing snapshot. Resetting to empty state.');
 
       if (!App.data) App.data = {};

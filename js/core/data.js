@@ -422,7 +422,17 @@ function renderAll() {
 
       var rawState = rows[0].state || null;
 
-      if (rawState && rawState.version === 1 && App.cloudState && typeof App.cloudState.apply === 'function') {
+      var hasCloudStateModule = App.cloudState && typeof App.cloudState.apply === 'function';
+      var version = rawState && rawState.version;
+      var isV1Snapshot = !!(rawState && (version === 1 || version === '1') && rawState.data && typeof rawState.data === 'object');
+
+      if (isV1Snapshot) {
+        if (!hasCloudStateModule) {
+          console.error('[Cloud Load] v1 cloud snapshot detected but CloudState.apply is not available.');
+          App.showToast("오류 발생 — 다시 시도해주세요.");
+          return;
+        }
+
         App.cloudState.apply(rawState);
       } else {
         console.warn('[Cloud Load] Legacy cloud state detected. Applying UI only and resetting data.');
@@ -475,6 +485,7 @@ function renderAll() {
         App.state.claims = [];
         App.state.schedules = [];
         App.state.cashLogs = [];
+      
       }
 
       if (!App.data) App.data = {};

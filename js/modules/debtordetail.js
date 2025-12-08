@@ -47,7 +47,7 @@
 
   function getSchedulesForLoan(loan) {
     if (!loan) return [];
-    var all = (App.state && App.state.schedules) || [];
+    var all = (App.data && App.data.schedules) || (App.state && App.state.schedules) || [];
     var out = [];
     var id = String(loan.id);
     for (var i = 0; i < all.length; i++) {
@@ -67,7 +67,7 @@
 
   function getSchedulesForClaim(claim) {
     if (!claim) return [];
-    var all = (App.state && App.state.schedules) || [];
+    var all = (App.data && App.data.schedules) || (App.state && App.state.schedules) || [];
     var out = [];
     var id = String(claim.id);
     for (var i = 0; i < all.length; i++) {
@@ -86,7 +86,8 @@
   }
 
   function computeClaimSummary(claim) {
-    var schedules = ((App.state && App.state.schedules) || []).filter(function (s) {
+    var allSchedules = (App.data && App.data.schedules) || (App.state && App.state.schedules) || [];
+    var schedules = allSchedules.filter(function (s) {
       return s.kind === 'claim' && String(s.claimId || s.claim_id) === String(claim.id);
     });
     var paid = 0;
@@ -104,6 +105,7 @@
       remaining: remaining
     };
   }
+
 
   function computeDebtorSummary(debtorLoans, debtorClaims) {
     debtorLoans = debtorLoans || [];
