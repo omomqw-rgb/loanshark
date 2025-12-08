@@ -77,4 +77,17 @@
     formatShortCurrency: formatShortCurrency,
     escapeHTML: escapeHTML
   };
+
+  App.showToast = function (msg) {
+    var el = document.getElementById("toast");
+    if (!el) return;
+
+    el.textContent = msg;
+    el.classList.add("show");
+
+    clearTimeout(App._toastTimer);
+    App._toastTimer = setTimeout(function () {
+      el.classList.remove("show");
+    }, 1500);
+  };
 })(window);

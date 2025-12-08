@@ -40,3 +40,22 @@
 .gap-1 { gap: var(--space-2); }
 .gap-2 { gap: var(--space-3); }
 .gap-3 { gap: var(--space-4); }
+
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.toast.show {
+  opacity: 1;
+}

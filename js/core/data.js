@@ -364,6 +364,7 @@ function renderAll() {
     if (!supa) return;
     if (!App.user || !App.user.id) {
       console.warn('[Data] Cannot load data: App.user is not set.');
+      App.showToast("오류 발생 — 다시 시도해주세요.");
       return;
     }
 
@@ -464,8 +465,10 @@ function renderAll() {
 
       // UI 렌더링
       renderAll();
+      App.showToast("Cloud Load 완료 — 최신 데이터가 반영되었습니다.");
     } catch (err) {
       console.error('[Data] Failed to load data from Supabase:', err);
+      App.showToast("오류 발생 — 다시 시도해주세요.");
     }
   }
 
@@ -855,6 +858,7 @@ App.data.saveToSupabase = async function () {
   var supa = getSupabase();
   if (!supa || !App.user) {
     console.warn('[Cloud Save] Cannot save: not authenticated.');
+    App.showToast("오류 발생 — 다시 시도해주세요.");
     return;
   }
 
@@ -872,11 +876,14 @@ App.data.saveToSupabase = async function () {
     var error = result && result.error ? result.error : null;
     if (error) {
       console.error('[Cloud Save] Failed:', error);
+      App.showToast("오류 발생 — 다시 시도해주세요.");
     } else {
       console.log('[Cloud Save] Success');
+      App.showToast("Cloud Save 완료 — Supabase에 저장되었습니다.");
     }
   } catch (err) {
     console.error('[Cloud Save] Unexpected error:', err);
+    App.showToast("오류 발생 — 다시 시도해주세요.");
   }
 };
 
