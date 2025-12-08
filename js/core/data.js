@@ -393,6 +393,8 @@ function renderAll() {
     ensureCloudStateModuleLoaded();
 
     try {
+      // v330: app_states now has uuid PK "id".
+      // We always fetch the most recent snapshot by ordering on this column.
       var result = await supa
         .from('app_states')
         .select('state')
@@ -408,7 +410,7 @@ function renderAll() {
 
       var rows = (result && result.data) || [];
       if (!rows.length || !rows[0] || !rows[0].state) {
-        console.warn('[Cloud Load] No cloud state found for user.');
+        console.warn('[Cloud Load] No cloud state found.');
         App.showToast("Cloud Load — 저장된 데이터가 없습니다.");
         return;
       }
