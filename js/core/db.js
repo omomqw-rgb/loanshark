@@ -75,10 +75,10 @@
       }
 
       schedules.push({
-        id: loan.id + '-I' + i,
+        id: String(loan.id) + '-I' + i,
         kind: 'loan',
-        debtorId: loan.debtorId,
-        loanId: loan.id,
+        debtorId: (loan.debtorId != null ? String(loan.debtorId) : null),
+        loanId: (loan.id != null ? String(loan.id) : null),
         claimId: null,
         installmentNo: i,
         dueDate: dueISO,
@@ -131,11 +131,11 @@
       var dueISO = toISODate(cursor);
 
       schedules.push({
-        id: claim.id + '-I' + i,
+        id: String(claim.id) + '-I' + i,
         kind: 'claim',
-        debtorId: claim.debtorId,
+        debtorId: (claim.debtorId != null ? String(claim.debtorId) : null),
         loanId: null,
-        claimId: claim.id,
+        claimId: (claim.id != null ? String(claim.id) : null),
         installmentNo: i,
         dueDate: dueISO,
         amount: 0,
@@ -203,43 +203,173 @@
     loan.nextDueDate = nextDue;
   }
 
+  function cloneSchedule(src) {
+    if (!src || typeof src !== 'object') return src;
+    var copy = {};
+    for (var key in src) {
+      if (!Object.prototype.hasOwnProperty.call(src, key)) continue;
+      copy[key] = src[key];
+    }
+    return copy;
+  }
+
   function rebuildSchedulesForLoan(loanId) {
-    var state = App.state;
+    var state = App.state || (App.state = {});
+    var data = App.data || (App.data = {});
+
+    var normalizedLoanId = (loanId != null) ? String(loanId) : loanId;
+
+    // 1) loan 찾기 (state 우선, data fallback)
     var loan = null;
-    for (var i = 0; i < state.loans.length; i++) {
-      if (state.loans[i].id === loanId) {
-        loan = state.loans[i];
+    var stateLoans = state.loans || [];
+    for (var i = 0; i < stateLoans.length; i++) {
+      var candidate = stateLoans[i];
+      if (!candidate) continue;
+      if (String(candidate.id) === String(normalizedLoanId)) {
+        loan = candidate;
         break;
       }
     }
+
+    if (!loan) {
+      var dataLoans = data.loans || [];
+      for (var j = 0; j < dataLoans.length; j++) {
+        var candidate2 = dataLoans[j];
+        if (!candidate2) continue;
+        if (String(candidate2.id) === String(normalizedLoanId)) {
+          loan = candidate2;
+          break;
+        }
+      }
+    }
+
     if (!loan) return;
 
-    state.schedules = (state.schedules || []).filter(function (s) {
-      return !(s.kind === 'loan' && s.loanId === loanId);
-    });
+    // 2) 기존 해당 Loan 스케줄 삭제 (state/data 둘 다)
+    var filterFn = function (s) {
+      if (!s) return true;
+      if (s.kind !== 'loan') return true;
+      return String(s.loanId) !== String(normalizedLoanId);
+    };
 
-    var newSchedules = buildLoanSchedule(loan);
+    state.schedules = (state.schedules || []).filter(filterFn);
+    data.schedules = (data.schedules || []).filter(filterFn);
+
+    // 3) 새 스케줄 생성
+    var newSchedules = buildLoanSchedule(loan) || [];
+
+    if (!state.schedules) state.schedules = [];
+    if (!data.schedules) data.schedules = [];
+
+    // 4) state + data 동시에 push (ID string 정규화)
+    for (var k = 0; k < newSchedules.length; k++) {
+      var s = newSchedules[k];
+      if (!s) continue;
+
+      if (s.id != null) s.id = String(s.id);
+      if (s.loanId != null) s.loanId = String(s.loanId);
+      if (s.debtorId != null) s.debtorId = String(s.debtorId);
+      if (s.claimId != null) s.claimId = String(s.claimId);
+
+      state.schedules.push(s);
+      data.schedules.push(cloneSchedule(s));
+    }
+
+    // 5) ID 타입 통일 (특히 loanId)
+    var allStateSchedules = state.schedules || [];
+    for (var p = 0; p < allStateSchedules.length; p++) {
+      var sc = allStateSchedules[p];
+      if (!sc || sc.loanId == null) continue;
+      sc.loanId = String(sc.loanId);
+    }
+
+    var allDataSchedules = data.schedules || [];
+    for (var q = 0; q < allDataSchedules.length; q++) {
+      var sc2 = allDataSchedules[q];
+      if (!sc2 || sc2.loanId == null) continue;
+      sc2.loanId = String(sc2.loanId);
+    }
+
+    // 6) Loan 파생 필드 재계산
     deriveLoanFields(loan, newSchedules);
-    Array.prototype.push.apply(state.schedules, newSchedules);
   }
 
   function rebuildSchedulesForClaim(claimId) {
-    var state = App.state;
+    var state = App.state || (App.state = {});
+    var data = App.data || (App.data = {});
+
+    var normalizedClaimId = (claimId != null) ? String(claimId) : claimId;
+
+    // 1) claim 찾기 (state 우선, data fallback)
     var claim = null;
-    for (var i = 0; i < state.claims.length; i++) {
-      if (state.claims[i].id === claimId) {
-        claim = state.claims[i];
+    var stateClaims = state.claims || [];
+    for (var i = 0; i < stateClaims.length; i++) {
+      var candidate = stateClaims[i];
+      if (!candidate) continue;
+      if (String(candidate.id) === String(normalizedClaimId)) {
+        claim = candidate;
         break;
       }
     }
+
+    if (!claim) {
+      var dataClaims = data.claims || [];
+      for (var j = 0; j < dataClaims.length; j++) {
+        var candidate2 = dataClaims[j];
+        if (!candidate2) continue;
+        if (String(candidate2.id) === String(normalizedClaimId)) {
+          claim = candidate2;
+          break;
+        }
+      }
+    }
+
     if (!claim) return;
 
-    state.schedules = (state.schedules || []).filter(function (s) {
-      return !(s.kind === 'claim' && s.claimId === claimId);
-    });
+    // 2) 기존 해당 Claim 스케줄 삭제 (state/data 둘 다)
+    var filterFn = function (s) {
+      if (!s) return true;
+      if (s.kind !== 'claim') return true;
+      return String(s.claimId) !== String(normalizedClaimId);
+    };
 
-    var newSchedules = buildClaimSchedule(claim);
-    Array.prototype.push.apply(state.schedules, newSchedules);
+    state.schedules = (state.schedules || []).filter(filterFn);
+    data.schedules = (data.schedules || []).filter(filterFn);
+
+    // 3) 새 스케줄 생성
+    var newSchedules = buildClaimSchedule(claim) || [];
+
+    if (!state.schedules) state.schedules = [];
+    if (!data.schedules) data.schedules = [];
+
+    // 4) state + data 동시에 push (ID string 정규화)
+    for (var k = 0; k < newSchedules.length; k++) {
+      var s = newSchedules[k];
+      if (!s) continue;
+
+      if (s.id != null) s.id = String(s.id);
+      if (s.claimId != null) s.claimId = String(s.claimId);
+      if (s.debtorId != null) s.debtorId = String(s.debtorId);
+      if (s.loanId != null) s.loanId = String(s.loanId);
+
+      state.schedules.push(s);
+      data.schedules.push(cloneSchedule(s));
+    }
+
+    // 5) ID 타입 통일 (특히 claimId)
+    var allStateSchedules = state.schedules || [];
+    for (var p = 0; p < allStateSchedules.length; p++) {
+      var sc = allStateSchedules[p];
+      if (!sc || sc.claimId == null) continue;
+      sc.claimId = String(sc.claimId);
+    }
+
+    var allDataSchedules = data.schedules || [];
+    for (var q = 0; q < allDataSchedules.length; q++) {
+      var sc2 = allDataSchedules[q];
+      if (!sc2 || sc2.claimId == null) continue;
+      sc2.claimId = String(sc2.claimId);
+    }
   }
 
   function seedDummyData() {

@@ -242,7 +242,9 @@ function handleDebtorDelete() {
       }
   
       var state = App.state;
+      var data = App.data || (App.data = {});
       var loans = state.loans || (state.loans = []);
+      if (!data.loans) data.loans = loans;
       var newId = 'L' + String(loans.length + 1).padStart(3, '0');
   
       var loan = {
@@ -258,12 +260,30 @@ function handleDebtorDelete() {
         startDate: startDate
       };
   
-      loans.push(loan);
+      loans.push(loan);  
+
+      if (data.loans !== loans) {
+        data.loans.push(loan);
+      }
   
       if (!state.schedules) state.schedules = [];
   
       if (App.db && App.db.rebuildSchedulesForLoan) {
         App.db.rebuildSchedulesForLoan(newId);
+
+      // 스케줄 재생성 후 Debtor 브리지 재빌드 (App.data 기준)
+      if (App.data && typeof App.data.buildDebtorsDetailed === 'function') {
+        var bridge = App.data.buildDebtorsDetailed(
+          data.debtors || [],
+          data.loans || [],
+          data.claims || [],
+          data.schedules || []
+        );
+        if (bridge) {
+          data.debtors = bridge.list || data.debtors || [];
+          data.debtorsDetailed = bridge.byId || data.debtorsDetailed || {};
+        }
+      }
       }
   
       if (App.modalManager && typeof App.modalManager.close === 'function') {
@@ -325,6 +345,20 @@ function handleDebtorDelete() {
   
       if (App.db && App.db.rebuildSchedulesForLoan) {
         App.db.rebuildSchedulesForLoan(loanId);
+
+        // 스케줄 재생성 후 Debtor 브리지 재빌드 (App.data 기준)
+        if (App.data && typeof App.data.buildDebtorsDetailed === 'function') {
+          var bridge = App.data.buildDebtorsDetailed(
+            App.data.debtors || [],
+            App.data.loans || [],
+            App.data.claims || [],
+            App.data.schedules || []
+          );
+          if (bridge) {
+            App.data.debtors = bridge.list || App.data.debtors || [];
+            App.data.debtorsDetailed = bridge.byId || App.data.debtorsDetailed || {};
+          }
+        }
       }
   
       if (App.modalManager && typeof App.modalManager.close === 'function') {
@@ -437,7 +471,9 @@ function handleDebtorDelete() {
       }
   
       var state = App.state;
+      var data = App.data || (App.data = {});
       var claims = state.claims || (state.claims = []);
+      if (!data.claims) data.claims = claims;
       var newId = 'C' + String(claims.length + 1).padStart(3, '0');
   
       var claim = {
@@ -453,7 +489,11 @@ function handleDebtorDelete() {
         memo: memo
       };
   
-      claims.push(claim);
+      claims.push(claim);  
+
+      if (data.claims !== claims) {
+        data.claims.push(claim);
+      }
   
       if (App.data && App.data.debtorsDetailed) {
         var dId2 = String(debtorId);
@@ -477,6 +517,20 @@ function handleDebtorDelete() {
   
       if (App.db && App.db.rebuildSchedulesForClaim) {
         App.db.rebuildSchedulesForClaim(newId);
+
+        // 스케줄 재생성 후 Debtor 브리지 재빌드 (App.data 기준)
+        if (App.data && typeof App.data.buildDebtorsDetailed === 'function') {
+          var bridge = App.data.buildDebtorsDetailed(
+            App.data.debtors || [],
+            App.data.loans || [],
+            App.data.claims || [],
+            App.data.schedules || []
+          );
+          if (bridge) {
+            App.data.debtors = bridge.list || App.data.debtors || [];
+            App.data.debtorsDetailed = bridge.byId || App.data.debtorsDetailed || {};
+          }
+        }
       }
   
       if (App.modalManager && typeof App.modalManager.close === 'function') {
@@ -534,6 +588,20 @@ function handleDebtorDelete() {
   
       if (App.db && App.db.rebuildSchedulesForClaim) {
         App.db.rebuildSchedulesForClaim(claimId);
+
+        // 스케줄 재생성 후 Debtor 브리지 재빌드 (App.data 기준)
+        if (App.data && typeof App.data.buildDebtorsDetailed === 'function') {
+          var bridge = App.data.buildDebtorsDetailed(
+            App.data.debtors || [],
+            App.data.loans || [],
+            App.data.claims || [],
+            App.data.schedules || []
+          );
+          if (bridge) {
+            App.data.debtors = bridge.list || App.data.debtors || [];
+            App.data.debtorsDetailed = bridge.byId || App.data.debtorsDetailed || {};
+          }
+        }
       }
   
       if (App.modalManager && typeof App.modalManager.close === 'function') {
