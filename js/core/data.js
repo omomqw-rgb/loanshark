@@ -398,21 +398,25 @@ function renderAll() {
   async function loadAllFromSupabase() {
     var supa = getSupabase();
     if (!supa) return;
-    if (!App.user || !App.user.id) {
-      console.warn('[Data] Cannot load data: App.user is not set.');
-      App.showToast("오류 발생 — 다시 시도해주세요.");
-      return;
-    }
 
     ensureCloudStateModuleLoaded();
 
-    var userId = App.user.id;
+    var userId = (App.user && App.user.id) ? App.user.id : null;
 
     try {
-      var result = await supa
+      var query = supa
         .from('app_states')
-        .select('state')
-        .eq('user_id', userId);
+        .select('state, updated_at');
+
+      if (userId) {
+        // 로그인 사용자는 자기 user_id의 최신 스냅샷
+        query = query.eq('user_id', userId);
+      }
+
+      // 로그인 여부에 관계없이 updated_at 기준 최신 1건만 조회
+      query = query.order('updated_at', { ascending: false }).limit(1);
+
+      var result = await query;
 
       var error = result && result.error ? result.error : null;
       if (error) {
@@ -423,7 +427,7 @@ function renderAll() {
 
       var rows = (result && result.data) || [];
       if (!rows.length || !rows[0] || !rows[0].state) {
-        console.warn('[Cloud Load] No cloud state found for user.');
+        console.warn('[Cloud Load] No cloud state found.');
         App.showToast("Cloud Load — 저장된 데이터가 없습니다.");
         return;
       }
